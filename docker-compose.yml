@@ -25,6 +25,18 @@ services:
     networks:
       - logisticsnet
 
+  consumer:
+    build: ./consumer-service
+    container_name: consumer
+    environment:
+      RABBITMQ_URL: amqp://admin:admin@rabbit:5672/
+    depends_on:
+      - rabbitmq
+    networks:
+      - logisticsnet
+
+
+
 networks:
   logisticsnet:
     driver: bridge

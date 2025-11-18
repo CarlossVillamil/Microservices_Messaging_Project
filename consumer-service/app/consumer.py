@@ -1,52 +1,68 @@
-import pika
 import json
 import time
-from .config import RABBITMQ_URL, QUEUE_NAME, EXCHANGE_NAME, ROUTING_KEY
+import logging
+import pika
+from .config import RABBITMQ_URL, EXCHANGE_NAME, ROUTING_KEY, QUEUE_NAME
 
-def start_consumer():
+logging.getLogger("pika").setLevel(logging.CRITICAL)
 
-    while True:  # <-- Loop para reconectar si se cae
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("app.consumer")
+
+
+def connect_rabbitmq():
+    while True:
         try:
-            print("Trying to connect to RabbitMQ...",flush=True)
-            
+            logger.info("Conectando a RabbitMQ...")
             params = pika.URLParameters(RABBITMQ_URL)
             connection = pika.BlockingConnection(params)
-            channel = connection.channel()
-
-            # Declare exchange and queue
-            channel.exchange_declare(
-                exchange=EXCHANGE_NAME,
-                exchange_type="topic",
-                durable=True
-            )
-
-            channel.queue_declare(queue=QUEUE_NAME, durable=True)
-
-            channel.queue_bind(
-                queue=QUEUE_NAME,
-                exchange=EXCHANGE_NAME,
-                routing_key=ROUTING_KEY
-            )
-
-            print("Consumer READY — listening for messages...",flush=True)
-
-            # Callback
-            def callback(ch, method, properties, body):
-                message = json.loads(body)
-                print("📦 Received shipment update:", message)
-                ch.basic_ack(delivery_tag=method.delivery_tag)
-
-            channel.basic_consume(
-                queue=QUEUE_NAME,
-                on_message_callback=callback,
-                auto_ack=False  # good practice
-            )
-
-            channel.start_consuming()
+            logger.info("Conectado a RabbitMQ")
+            return connection
 
         except pika.exceptions.AMQPConnectionError:
-            print("RabbitMQ not ready, retrying in 3s...",flush=True)
+            logger.warning("RabbitMQ no está disponible. Reintentando en 3 segundos...")
             time.sleep(3)
+
+
+def start_consumer():
+    logger.info("Starting consumer worker")
+
+    connection = connect_rabbitmq()
+
+    channel = connection.channel()
+
+    channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="topic", durable=True)
+    channel.queue_declare(queue=QUEUE_NAME, durable=True)
+    channel.queue_bind(queue=QUEUE_NAME, exchange=EXCHANGE_NAME, routing_key=ROUTING_KEY)
+
+    logger.info(
+        f"Consumer ready. Listening on queue '{QUEUE_NAME}' "
+        f"(exchange='{EXCHANGE_NAME}', routing_key='{ROUTING_KEY}')"
+    )
+
+    def callback(ch, method, properties, body):
+        try:
+            message = json.loads(body)
+            logger.info(
+                f"Message received | exchange={method.exchange}, "
+                f"routing_key={method.routing_key}, tag={method.delivery_tag}"
+            )
+            logger.info(f"Message content: {message}")
+
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            logger.info(f"Message acknowledged")
+
         except Exception as e:
-            print("Consumer error:", str(e),)
-            time.sleep(3)
+            logger.error(f"Error processing message: {e}")
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+
+    # Consumir
+    channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
+
+    try:
+        channel.start_consuming()
+    except KeyboardInterrupt:
+        logger.info("Stopping consumer...")
+        channel.stop_consuming()
+    finally:
+        connection.close()

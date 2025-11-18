@@ -2,7 +2,7 @@ import os
 
 RABBITMQ_URL = os.getenv(
     "RABBITMQ_URL",
-    "amqp://admin:admin@localhost:5672/"
+    "amqp://admin:admin@rabbit:5672/"
 )
 
 QUEUE_NAME = "shipment_updates"

@@ -7,6 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8002
+# OPCIÓN 1 (solo worker, más real)
+CMD ["python", "-m", "app.consumer_worker"]
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+# OPCIÓN 2 (worker + API en supervisord o PM2 si lo deseas)
+# Te la puedo armar si quieres los dos procesos juntos
