@@ -1,0 +1,9 @@
+{
+  "shipmentId": "string",
+  "status": "CREATED | IN_TRANSIT | DELIVERED",
+  "timestamp": "ISO8601",
+  "location": {
+    "lat": "float",
+    "lng": "float"
+  }
+}
