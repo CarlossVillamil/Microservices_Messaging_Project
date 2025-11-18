@@ -13,6 +13,18 @@ services:
     networks:
       - logisticsnet
 
+  producer:
+    build: ./producer-service
+    container_name: producer
+    ports:
+      - "8001:8001"
+    environment:
+      RABBITMQ_URL: amqp://admin:admin@rabbit:5672/
+    depends_on:
+      - rabbitmq
+    networks:
+      - logisticsnet
+
 networks:
   logisticsnet:
     driver: bridge
