@@ -1,4 +1,4 @@
-version: '3.9'
+version: "3.9"
 
 services:
   rabbitmq:
@@ -35,7 +35,20 @@ services:
     networks:
       - logisticsnet
 
-
+  monitor:
+    build: ./monitor-service
+    container_name: monitor
+    ports:
+      - "8002:8002"
+    environment:
+      RABBITMQ_URL: amqp://admin:admin@rabbit:5672/
+      PRODUCER_URL: http://producer:8001
+      QUEUE_NAME: shipment_updates
+    depends_on:
+      - rabbitmq
+      - producer
+    networks:
+      - logisticsnet
 
 networks:
   logisticsnet:
