@@ -1,4 +1,5 @@
 import json
+import os
 import requests
 import pika
 import logging
@@ -12,6 +13,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("monitor")
 
 app = FastAPI()
+
+# Default location used when a message does not include one
+DEFAULT_LAT = float(os.getenv("DEFAULT_BATCH_LAT", "0.0"))
+DEFAULT_LNG = float(os.getenv("DEFAULT_BATCH_LNG", "0.0"))
+DEFAULT_LOCATION = {"lat": DEFAULT_LAT, "lng": DEFAULT_LNG}
 
 # Mount simple static UI under /ui
 app.mount("/ui", StaticFiles(directory="app/static", html=True), name="ui")
@@ -91,26 +97,55 @@ async def api_send_batch(request: Request):
     except Exception:
         data = {}
 
-    count = int(data.get("count", 1))
-    template = data.get("message", {}) or {}
     results = []
 
-    for i in range(count):
-        msg = dict(template)
-        # ensure unique id and fresh timestamp
-        base_id = msg.get("shipmentId", "AUTO")
-        msg["shipmentId"] = f"{base_id}-{i}-{int(datetime.utcnow().timestamp())}"
-        msg["timestamp"] = datetime.utcnow().isoformat() + "Z"
+    # Support two formats:
+    # 1) { messages: [ {...}, {...} ] }
+    # 2) { count: N, message: { ... } }
+    messages = None
+    if isinstance(data, dict) and "messages" in data and isinstance(data.get("messages"), list):
+        messages = list(data.get("messages"))
+    else:
+        count = int(data.get("count", 0))
+        template = data.get("message", {}) or {}
+        if count and isinstance(template, dict):
+            messages = []
+            for i in range(count):
+                msg = dict(template)
+                base_id = msg.get("shipmentId", "AUTO")
+                msg["shipmentId"] = f"{base_id}-{i}-{int(datetime.utcnow().timestamp())}"
+                msg["timestamp"] = datetime.utcnow().isoformat() + "Z"
+                messages.append(msg)
+
+    if not messages:
+        return JSONResponse(status_code=400, content={"error": "No messages provided. Use {messages:[...] } or {count: N, message: {...}}"})
+
+    # validate and send each message
+    for idx, msg in enumerate(messages):
+        # Basic validation: must have shipmentId, status, timestamp (we'll set timestamp if missing)
+        if not isinstance(msg, dict):
+            results.append({"index": idx, "error": "message must be an object"})
+            continue
+
+        if "shipmentId" not in msg:
+            msg["shipmentId"] = f"AUTO-{idx}-{int(datetime.utcnow().timestamp())}"
+        if "timestamp" not in msg:
+            msg["timestamp"] = datetime.utcnow().isoformat() + "Z"
+
+        # Ensure location is present for every message (use defaults if missing)
+        if "location" not in msg or not isinstance(msg.get("location"), dict):
+            msg["location"] = {"lat": float(msg.get("location", {}).get("lat", DEFAULT_LAT)) if isinstance(msg.get("location"), dict) else DEFAULT_LAT,
+                                 "lng": float(msg.get("location", {}).get("lng", DEFAULT_LNG)) if isinstance(msg.get("location"), dict) else DEFAULT_LNG}
 
         try:
-            resp = requests.post(f"{PRODUCER_URL}/send-shipment", json=msg, timeout=5)
+            resp = requests.post(f"{PRODUCER_URL}/send-shipment", json=msg, timeout=10)
             try:
                 body = resp.json()
             except Exception:
                 body = resp.text
-            results.append({"index": i, "status": resp.status_code, "ok": resp.ok, "body": body})
+            results.append({"index": idx, "status": resp.status_code, "ok": resp.ok, "body": body})
         except Exception as e:
-            results.append({"index": i, "error": str(e)})
+            results.append({"index": idx, "error": str(e)})
 
     return JSONResponse(status_code=200, content={"results": results})
 
