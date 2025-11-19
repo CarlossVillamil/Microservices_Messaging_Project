@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: microservices-messaging
+
+resources:
+  - namespace.yaml
+  - rabbitmq-statefulset.yaml
+  - rabbitmq-services.yaml
+  - producer-deployment.yaml
+  - consumer-deployment.yaml
+  - monitor-deployment.yaml
+  - ingress-monitor.yaml
+
+configMapGenerator:
+  - name: app-config
+    literals:
+      - DEFAULT_MESSAGE=Hello from Kubernetes
+      - ROUTING_KEY=logistics.events
+
+secretGenerator:
+  - name: rabbitmq-secret
+    literals:
+      - username=admin
+      - password=admin
+      - url=amqp://admin:admin@rabbit:5672/
+
+generatorOptions:
+  disableNameSuffixHash: true
